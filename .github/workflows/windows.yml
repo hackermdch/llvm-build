@@ -1,0 +1,52 @@
+name: Build Windows
+on: workflow_dispatch
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - name: Current date time
+        uses: Kaven-Universe/github-action-current-date-time@v1.4.0
+        id: time
+        with:
+          format: "YYYYMMDDHHmmss"
+
+      - uses: actions/checkout@v4
+      - name: setup build deps
+        run: |
+          choco install -y cmake python3 7zip
+          RefreshEnv.cmd
+          regsvr32 "%VSINSTALLDIR%\DIA SDK\bin\msdia140.dll"
+          regsvr32 "%VSINSTALLDIR%\DIA SDK\bin\amd64\msdia140.dll"
+          pip install psutil
+
+      - name: checkout llvm
+        run: git clone --single-branch --depth 1 --branch main https://github.com/llvm/llvm-project llvm
+
+      - name: setup build
+        run: |
+          mkdir build
+          mkdir install
+          cmake `
+            -S ".\llvm\llvm" `
+            -B ".\build" `
+            -G "Visual Studio 17 2022" `
+            -Thost=x64 `
+            -A x64 `
+            -DLLVM_TARGETS_TO_BUILD="X86;AArch64" `
+            -DLLVM_ENABLE_PROJECTS="lld;clang" `
+            -DLLVM_STATIC_LINK_CXX_STDLIB=true `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX=".\install"
+          cmake --build .\build --target INSTALL --config Release -j
+          7z a -mx9 "LLVM-main-win64.exe" ".\install\*"
+
+      - name: Upload Release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          tag: latest
+          name: LLVM main ${{ steps.time.outputs.time }}
+          makeLatest: false
+          artifacts: LLVM-main-win64.exe
